@@ -1,0 +1,27 @@
+@mode(freestanding)
+
+from cli.args import (ArgError, wordCountNow, wordLength, wordByte);
+from platform.console import (putByte, puts, newline);
+
+# Prints word `w` of the current line.
+pub func putWord(w: int): void {
+    var i = 0;
+    while (i < wordLength(w)) {
+        putByte(wordByte(w, i));
+        i = i + 1;
+    }
+}
+
+# echo [WORD]...: the words, separated by single spaces.
+pub func cmdEcho(): Result[int, ArgError] {
+    var w = 1;
+    while (w < wordCountNow()) {
+        if (w > 1) {
+            puts(" ");
+        }
+        putWord(w);
+        w = w + 1;
+    }
+    newline();
+    return Ok(wordCountNow() - 1);
+}

@@ -1,0 +1,214 @@
+@mode(freestanding)
+
+# Board support for x86_64 under `qemu-system-x86_64 -kernel`: the boot
+# headers QEMU looks for, the 32-bit entry that switches to long mode, the
+# COM1 serial port (both directions), the time-stamp counter, the
+# isa-debug-exit device and the panic handler. The shell itself is cli.app.
+
+from appinfo import (STATUS_PANIC);
+from platform.board import (Board);
+from platform.console import (attach, puts, putDec, newline);
+from cli.app import (run);
+
+const COM1: uint16 = 0x3F8u16;
+const LSR_DATA_READY: uint8 = 0x01u8;
+const LSR_TX_EMPTY: uint8 = 0x20u8;
+const DEBUG_EXIT_PORT: uint16 = 0xF4u16;
+
+# The entry stub identity-maps the first 1 GiB; nothing above is mapped.
+const MEM_END: uint64 = 0x40000000u64;
+# Free RAM above the image (linked at 1 MiB) for poke and sha256.
+const SCRATCH: uint64 = 0x200000u64;
+
+# ---- Port I/O and the 16550 UART at COM1 -----------------------------------
+
+@unsafe("port I/O: writes an x86 I/O port")
+func outb(port: uint16, value: uint8): void {
+    asm { "out dx, al" in: "dx" = port, "al" = value clobbers: [] }
+}
+
+@unsafe("port I/O: reads an x86 I/O port")
+func inb(port: uint16): uint8 {
+    var value: uint64 = 0;
+    asm { "in al, dx" out: value = "=a" in: "dx" = port clobbers: [] }
+    return (value & 0xFFu64) as uint8;
+}
+
+# 115200 baud, 8N1, no UART interrupts. The FIFO control register is left
+# alone: enabling or clearing the FIFOs would throw away input that QEMU
+# may already have delivered before the shell started.
+func com1Init(): void {
+    outb(COM1 + 1u16, 0x00u8);    # no UART interrupts
+    outb(COM1 + 3u16, 0x80u8);    # DLAB on: the next two writes set the divisor
+    outb(COM1 + 0u16, 0x01u8);    # divisor 1: 115200 baud
+    outb(COM1 + 1u16, 0x00u8);
+    outb(COM1 + 3u16, 0x03u8);    # DLAB off; 8 data bits, no parity, 1 stop bit
+}
+
+func com1Put(c: uint8): void {
+    while ((inb(COM1 + 5u16) & LSR_TX_EMPTY) == 0u8) { }
+    outb(COM1, c);
+}
+
+# Polls until a byte has arrived.
+func com1Get(): uint8 {
+    while ((inb(COM1 + 5u16) & LSR_DATA_READY) == 0u8) {
+        asm { "pause" }
+    }
+    return inb(COM1);
+}
+
+# ---- The time-stamp counter ---------------------------------------------------
+
+func readTsc(): uint64 {
+    var lo: uint64 = 0;
+    var hi: uint64 = 0;
+    asm { "rdtsc" out: lo = "=a", hi = "=d" clobbers: [] }
+    return (hi << 32u64) | (lo & 0xFFFFFFFFu64);
+}
+
+# ---- Leaving QEMU -------------------------------------------------------------
+
+# isa-debug-exit makes QEMU exit with (value << 1) | 1: 0x10 -> 33, 0x12 -> 37.
+# Without the device the write is ignored and the CPU halts.
+func qemuExit(status: uint8): noreturn {
+    outb(DEBUG_EXIT_PORT, 0x10u8 | status);
+    while (true) {
+        asm { "cli" "hlt" }
+    }
+}
+
+func exitQemu(status: uint8): void {
+    qemuExit(status);
+}
+
+func kernelMain(): void {
+    com1Init();
+    attach(com1Put, com1Get);
+    let board = Board(arch = "x86_64", console = "16550 UART at I/O port 0x3f8",
+        clock = "TSC", memStart = 0u64, memEnd = MEM_END, scratch = SCRATCH,
+        ticks = readTsc, exit = exitQemu);
+    run(board);
+    qemuExit(STATUS_PANIC);
+}
+
+# ---- Panics -------------------------------------------------------------------
+
+# With `panic = "custom"` in the manifest, every panic lands here: a reached
+# `unreachable` (the panic command), or a buffer index out of range under
+# `bounds = "trap"`.
+@panic_handler
+func kernelPanic(msg: string, file: string, line: int): noreturn {
+    asm { "cli" }
+    attach(com1Put, com1Get);
+    puts("PANIC: ");
+    puts(msg);
+    puts(" at ");
+    puts(file);
+    puts(":");
+    putDec(line as uint64);
+    newline();
+    qemuExit(STATUS_PANIC);
+}
+
+# ---- Boot headers and entry ---------------------------------------------------
+
+# Multiboot2 header: magic, architecture 0 (i386), length, checksum, end tag.
+@section(".multiboot")
+@naked
+@unsafe("naked: data only, never called; the Multiboot2 header")
+func multibootHeader(): void {
+    asm {
+        ".align 8"
+        "mb2_start:"
+        ".long 0xE85250D6"
+        ".long 0"
+        ".long mb2_end - mb2_start"
+        ".long 0x100000000 - (0xE85250D6 + (mb2_end - mb2_start))"
+        ".short 0"
+        ".short 0"
+        ".long 8"
+        "mb2_end:"
+    }
+}
+
+# Xen PVH note (type 18, XEN_ELFNOTE_PHYS32_ENTRY): where QEMU enters the image.
+@section(".note.Xen")
+@naked
+@unsafe("naked: data only, never called; the PVH entry note")
+func pvhNote(): void {
+    asm {
+        ".align 4"
+        ".long 4"
+        ".long 4"
+        ".long 18"
+        ".byte 0x58"
+        ".byte 0x65"
+        ".byte 0x6e"
+        ".byte 0x00"
+        ".align 4"
+        ".long _start"
+    }
+}
+
+# QEMU enters here in 32-bit protected mode with paging off and no stack.
+# Identity-map the first 1 GiB with 2 MiB pages (tables at 0x70000-0x72FFF),
+# enable PAE and long mode, load a flat GDT (0x08 code, 0x10 data), switch to
+# the stack the linker script reserves (__stack_top) and call kernelMain.
+@entry
+@naked
+@unsafe("naked: entered by the PVH loader in 32-bit mode with no stack; builds page tables and enters long mode")
+@section(".text.boot")
+func _start(): void {
+    asm {
+        ".code32"
+        "mov esp, 0x90000"
+        "mov dword ptr [0x70000], 0x71003"
+        "mov dword ptr [0x70004], 0"
+        "mov dword ptr [0x71000], 0x72003"
+        "mov dword ptr [0x71004], 0"
+        "mov edi, 0x72000"
+        "mov eax, 0x83"
+        "mov ecx, 512"
+        "fill_pd:"
+        "mov dword ptr [edi], eax"
+        "mov dword ptr [edi+4], 0"
+        "add eax, 0x200000"
+        "add edi, 8"
+        "dec ecx"
+        "jnz fill_pd"
+        "mov eax, 0x70000"
+        "mov cr3, eax"
+        "mov eax, cr4"
+        "or eax, 0x20"
+        "mov cr4, eax"
+        "mov ecx, 0xC0000080"
+        "rdmsr"
+        "or eax, 0x100"
+        "wrmsr"
+        "mov eax, cr0"
+        "or eax, 0x80000001"
+        "mov cr0, eax"
+        "lgdt [gdt_ptr]"
+        "jmp 0x08, long_mode"
+        ".code64"
+        "long_mode:"
+        "mov ax, 0x10"
+        "mov ds, ax"
+        "mov es, ax"
+        "mov ss, ax"
+        "lea rsp, [rip + __stack_top]"
+        "call kernelMain"
+        "cli"
+        "hlt"
+        ".align 8"
+        "gdt_start:"
+        ".quad 0x0000000000000000"
+        ".quad 0x00209A0000000000"
+        ".quad 0x0000920000000000"
+        "gdt_ptr:"
+        ".word 23"
+        ".long gdt_start"
+        clobbers: ["memory"]
+    }
+}

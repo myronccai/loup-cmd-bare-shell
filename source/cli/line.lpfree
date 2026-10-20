@@ -1,0 +1,87 @@
+@mode(freestanding)
+
+# The line editor. Reads one line from the console into a fixed buffer,
+# echoing what it accepts, with the editing keys of a plain terminal:
+#   Backspace or Delete  erase the last character
+#   Ctrl-U               erase the whole line
+#   Ctrl-C               abandon the line (prints ^C)
+#   Enter (CR or LF)     finish the line; a LF right after a CR is ignored
+# Other control characters are ignored; a character that does not fit rings
+# the bell.
+
+from platform.console import (getByte, putByte, puts, newline);
+
+pub const LINE_CAPACITY: int = 80;
+
+const BEL: uint8 = 0x07u8;
+const BS: uint8 = 0x08u8;
+const CR: uint8 = 0x0Du8;
+const LF: uint8 = 0x0Au8;
+const DEL: uint8 = 0x7Fu8;
+const CTRL_C: uint8 = 0x03u8;
+const CTRL_U: uint8 = 0x15u8;
+
+var line: buffer[uint8, LINE_CAPACITY];
+var lineLen: int = 0;
+
+# True when the previous line ended with CR, so a LF that follows belongs to
+# the same Enter.
+var lastWasCr: bool = false;
+
+pub func lineLength(): int {
+    return lineLen;
+}
+
+pub func lineByte(i: int): uint8 {
+    return line[i];
+}
+
+# Removes the last character from the screen: back, blank, back.
+func eraseOne(): void {
+    putByte(BS);
+    putByte(0x20u8);
+    putByte(BS);
+}
+
+# Reads a line; returns its length (the bytes are read with lineByte).
+pub func readLine(): int {
+    lineLen = 0;
+    while (true) {
+        let c = getByte();
+        let afterCr = lastWasCr;
+        lastWasCr = false;
+        if (c == CR or c == LF) {
+            if (c == LF and afterCr) {
+                continue;
+            }
+            lastWasCr = c == CR;
+            newline();
+            return lineLen;
+        }
+        if (c == BS or c == DEL) {
+            if (lineLen > 0) {
+                lineLen = lineLen - 1;
+                eraseOne();
+            }
+        } else if (c == CTRL_U) {
+            while (lineLen > 0) {
+                lineLen = lineLen - 1;
+                eraseOne();
+            }
+        } else if (c == CTRL_C) {
+            puts("^C");
+            newline();
+            lineLen = 0;
+            return 0;
+        } else if (c >= 0x20u8 and c < 0x7Fu8) {
+            if (lineLen < LINE_CAPACITY) {
+                line[lineLen] = c;
+                lineLen = lineLen + 1;
+                putByte(c);
+            } else {
+                putByte(BEL);
+            }
+        }
+    }
+    return 0;
+}

@@ -1,0 +1,21 @@
+@mode(freestanding)
+
+# What a board gives the shell: facts to print, the memory the memory
+# commands may touch, and the machine operations the shell cannot do itself.
+pub struct Board {
+    # The --arch the image was built for.
+    pub let arch: string;
+    # The UART the console uses.
+    pub let console: string;
+    # The counter `ticks` reads, e.g. "TSC".
+    pub let clock: string;
+    # Addresses from memStart up to (not including) memEnd are mapped.
+    pub let memStart: uint64;
+    pub let memEnd: uint64;
+    # Free RAM for experiments with poke and sha256.
+    pub let scratch: uint64;
+    # Reads the free-running counter.
+    pub let ticks: func(): uint64;
+    # Ends the run; QEMU exits. Does not return.
+    pub let exit: func(uint8): void;
+}

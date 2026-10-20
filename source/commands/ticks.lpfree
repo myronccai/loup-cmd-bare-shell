@@ -1,0 +1,27 @@
+@mode(freestanding)
+
+from platform.board import (Board);
+from platform.console import (puts, putDec, newline);
+from cli.args import (ArgError, expectArgs);
+
+# The counter's value when the shell started.
+var bootTicks: uint64 = 0u64;
+
+pub func markBoot(board: Board): void {
+    let readClock = board.ticks;
+    bootTicks = readClock();
+}
+
+# ticks: the board's free-running counter since the shell started.
+pub func cmdTicks(board: Board): Result[int, ArgError] {
+    expectArgs(0)?;
+    let readClock = board.ticks;
+    let elapsed = readClock() - bootTicks;
+    puts("ticks: ");
+    putDec(elapsed);
+    puts(" ");
+    puts(board.clock);
+    puts(" counts since boot");
+    newline();
+    return Ok(0);
+}

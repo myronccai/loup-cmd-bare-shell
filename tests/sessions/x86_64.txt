@@ -1,0 +1,24 @@
+help
+echo hello,   bare   metal
+hexdump 0x100000 24
+peek 0x100000
+poke 0x200000 0x61
+poke 0x200001 98
+poke 0x200002 0x63
+hexdump 0x200000 3
+sha256 0x200000 3
+sha256 0x300000 0
+sha256 0x300000 56
+sha256 0x300000 200
+ticks
+ec\b\b\becho edited
+garbage\x15echo after Ctrl-U
+abandoned\x03echo after Ctrl-C
+peek
+peek zz
+poke 1 2 3
+poke 0x200000 256
+peek 0x40000000
+hexdump 0x3ffffff0 32
+frobnicate
+halt

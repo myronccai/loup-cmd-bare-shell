@@ -1,7 +1,10 @@
 # AGENTS.md
 
-This repository is a GitHub template for building a command-line application
-in the Loup programming language. The program is built as a native executable.
+This repository is `loup-cmd-bare-shell`, an interactive shell on the
+serial port of a bare-metal machine, in the loup-cmd series of Loup example
+applications. It is `freestanding` Loup (`.lpfree`): no operating system,
+no heap, no exceptions. It is built for two boards (x86-64 on QEMU `pc`,
+AArch64 on QEMU `virt`) and tested by typing scripted sessions into QEMU.
 
 ## Skills
 
@@ -9,99 +12,102 @@ in the Loup programming language. The program is built as a native executable.
 |-------|----------|-------------|
 | `loup-programmer` | [skills/loup-programmer/SKILL.md](skills/loup-programmer/SKILL.md) | Writing, reviewing, debugging or explaining Loup code: `.lpscr`, `.loup`, `.lphc`, `.lpweb` or `.lpfree` source files, `.lppkg` manifests, `@mode(...)` directives, or the `loup` / `loup-bootstrap` commands. |
 
-Read `skills/loup-programmer/SKILL.md` before writing or changing any Loup code
-in this repository. It links to detailed references under
-`skills/loup-programmer/references/` for syntax, types and ownership, execution
-modes and projects, errors and diagnostics, the standard library, and common
-mistakes. Load those only as needed.
+Read `skills/loup-programmer/SKILL.md` and
+`skills/loup-programmer/references/freestanding.md` before writing or
+changing any Loup code in this repository. Load the other references only as
+needed.
 
 ## Code layout
 
 ```text
 .
-├── package.lppkg                # Loup manifest: name, version, toolchain, [build] entry, [test] pattern
-├── Makefile                     # run, check, test, build, ci, clean
+├── package.lppkg                # x86_64 board: [build] entry/mode/arch/panic, [linker], [freestanding]
+├── boards/aarch64/package.lppkg # aarch64 board: the same keys; paths relative to its directory
+├── linker/                      # x86_64.ld (1 MiB, boot headers first), aarch64.ld (0x40080000)
 ├── source/                      # all Loup code; modules import each other by path from here
-│   ├── main.loup                # entry point: func main() calls run(runtime.args())
-│   ├── appinfo.loup             # APP_NAME, APP_VERSION, APP_SUMMARY, exit statuses
+│   ├── main_x86_64.lpfree       # x86_64 entry file: boot headers, _start, COM1, TSC, isa-debug-exit, @panic_handler
+│   ├── main_aarch64.lpfree      # aarch64 entry file: _start, PL011, CNTVCT, semihosting exit, @panic_handler
+│   ├── appinfo.lpfree           # APP_NAME, APP_VERSION, STATUS_*
+│   ├── platform/
+│   │   ├── board.lpfree         # struct Board: names, memory window, ticks and exit functions
+│   │   └── console.lpfree       # attach(put, get), getByte, putByte, puts, putDec, putHex, putAddr
 │   ├── cli/
-│   │   ├── args.loup            # struct Options, parse_args()
-│   │   ├── usage.loup           # usage(), version_line()
-│   │   └── app.loup             # run(), dispatch(): routes commands, maps errors to exit statuses
-│   └── commands/                # one module per command
-│       └── hello.loup           # sample command: run_hello()
-├── tests/                       # tests: <module>_test.loup files with func test_*(): void
-│   ├── app_test.loup
-│   ├── args_test.loup
-│   └── hello_test.loup
-├── specs/                       # feature specs: <feature>/requirements.md, design.md, tasks.md
-│   ├── README.md
-│   └── command-line-interface/
+│   │   ├── line.lpfree          # readLine(): the line editor
+│   │   ├── args.lpfree          # splitWords, wordIs, parseNumber -> Result[uint64, ArgError], expectArgs
+│   │   ├── usage.lpfree         # banner, help, usage lines
+│   │   └── app.lpfree           # run(board): the shell loop, dispatch, error reports
+│   └── commands/
+│       ├── echo.lpfree          # echo
+│       ├── memory.lpfree        # peek, poke, hexdump, checkRange
+│       ├── ticks.lpfree         # ticks
+│       ├── sha256.lpfree        # SHA-256 over memory (masked uint64 words)
+│       ├── hash.lpfree          # the sha256 command
+│       └── system.lpfree        # panic, halt
+├── scripts/qemu.sh              # the QEMU command line for each board
+├── tests/
+│   ├── boot.sh                  # types the sessions into QEMU, compares transcripts and exit statuses
+│   ├── sessions/                # input: one command per line; \b, \x15, \x03 for the editing keys
+│   └── expected/                # transcripts (cat -v; the ticks value as N)
+├── specs/bare-shell/            # requirements.md, design.md, tasks.md
 ├── skills/loup-programmer/      # the Loup skill and its references
-├── .github/workflows/ci.yml     # installs Loup and runs `make ci`
+├── .github/workflows/ci.yml     # installs lld, QEMU and Loup, runs `make ci`, uploads the images
 └── build/                       # build output (git-ignored)
 ```
 
 ## Build, run and test
 
-Prerequisites: Loup 1.26.0 (`loup` and `loup-bootstrap` on `PATH`), `make`,
-and `clang` 17 or later for native builds.
+Prerequisites: Linux x86-64, Loup 1.26.0 (`loup` and `loup-bootstrap` on
+`PATH`), `make`, `clang`, `ld.lld`, `qemu-system-x86_64` and
+`qemu-system-aarch64`.
 
 | Task | Command | Notes |
 |------|---------|-------|
-| Run from source | `make run ARGS="hello Ann --shout"` | `loup run source/main.loup -- ARGS` |
-| Type-check | `make check` | checks `source/main.loup` and every module it imports; tests are not checked |
-| Run all tests | `make test` | every `tests/*_test.loup` |
-| Run matching tests | `make test TEST_ARGS="--filter value"` | tests whose name contains `value` |
-| Run one test file | `make test TEST_ARGS="--file tests/args_test.loup"` | |
-| Build | `make build` | native binary at `build/myapp` |
-| Run the binary | `build/myapp --help` | |
-| Everything CI runs | `make ci` | check, test, build, then `build/myapp --version` |
+| Type-check | `make check` | `loup-bootstrap check` at the root and in `boards/aarch64` |
+| Build | `make build` | `build/shell-x86_64.elf`, `build/shell-aarch64.elf` |
+| Build one board | `make build/shell-aarch64.elf` | `loup build --target freestanding --arch aarch64 -o ... boards/aarch64` |
+| Boot tests | `make boot` | `tests/boot.sh`: four sessions, transcripts and exit statuses compared |
+| Refresh expected transcripts | `UPDATE=1 bash tests/boot.sh` | then read `git diff tests/expected` before committing |
+| Use the shell | `make run` / `make run ARCH=aarch64` | Ctrl-C goes to the shell; type `halt` to leave |
+| Everything CI runs | `make ci` | check, build, boot |
 | Clean | `make clean` | removes `build/` and `.temp/` |
 
-Run `make ci` before reporting a change as done. `loup run` and the native
-build do not support the same things, so a change can pass `make test` and
-still fail `make build`.
+Run `make ci` before reporting a change as done. `loup-bootstrap check`
+accepts things the freestanding back ends reject or miscompile, so only a
+boot proves a change.
 
-Do not call `loup test` or `loup check` directly on Linux x86-64. There `loup`
-is the self-hosted driver: it refuses `check`, and its test runner cannot
-resolve this project's imports. The Makefile uses `loup-bootstrap` (Stage0) for
-both, and sets `LOUPPATH=source` for tests.
+Do not call `loup check` on Linux x86-64 (the self-hosted driver refuses it);
+use `loup-bootstrap check`. `loup-bootstrap test --freestanding` does not work
+for this project in 1.26.0; test through `tests/sessions/` instead.
 
 ## Making a change
 
-1. Write or update the spec in `specs/<feature>/` (see [specs/README.md](specs/README.md)).
+1. Update the spec in `specs/bare-shell/`.
 2. Change the code under `source/`.
-3. Add or update tests in `tests/`.
-4. Run `make ci`.
-5. Tick the finished tasks in `specs/<feature>/tasks.md`.
-
-To add a command:
-
-1. Create `source/commands/<name>.loup` with `@mode(host.dual)` and
-   `pub func run_<name>(opts: Options): int`, returning an exit status from
-   `appinfo`.
-2. Add an arm for it to `dispatch` in `source/cli/app.loup`.
-3. Describe it in `usage()` in `source/cli/usage.loup`.
-4. Add any new options to `Options` and `parse_args` in `source/cli/args.loup`.
-5. Add `tests/<name>_test.loup`.
+3. Add the new behaviour to `tests/sessions/x86_64.txt` and `aarch64.txt`.
+4. Run `make build`, then `UPDATE=1 bash tests/boot.sh`, read the diff of
+   `tests/expected/`, then `make ci`.
+5. Tick the finished tasks in `specs/bare-shell/tasks.md`.
 
 ## Conventions
 
-- Every source file is `@mode(host.dual)` with the `.loup` extension. Only
-  `source/main.loup` has a `main()`.
+- Every source file is `@mode(freestanding)` with the `.lpfree` extension.
+  Each board's entry file has the single `@entry` (`_start`), which calls
+  `kernelMain`.
+- Code that differs per CPU lives only in the two `main_*.lpfree` files.
+  Everything else must build for both boards.
 - Modules import each other by path from `source/`:
-  `from cli.args import (Options);`. Tests import them the same way. Do not
-  use relative imports (`from .args import ...`): the self-hosted `loup run`
-  on Linux x86-64 fails on them.
-- Struct fields read from another module must be `pub`.
-- The native build supports less than `loup run` does. For example,
-  `list.is_empty()` fails native codegen (`E-CODEGEN-UNHANDLED-METHOD`); use
-  `len() == 0`.
-- Keep `APP_VERSION` in `source/appinfo.loup` equal to `version` in
-  `package.lppkg`.
-- The skill's examples use the `loup init` layout (`src/`, `tests/`, and
-  `from ..src.x import` in tests). This project uses `source/` and
-  `tests/` with plain imports; follow this file.
-- The skill documents toolchain 1.25.1; this template targets 1.26.0. When
+  `from cli.args import (parseNumber);`. No relative imports.
+- No heap, no exceptions, no `list`/`dict`, no string building: use
+  `buffer[T, N]`, module-level variables, `Result` and `match`. Commands
+  return `Result[int, ArgError]` and use `?`.
+- Sized integers (`uint8` ... `uint32`) do not wrap in 1.26.0 freestanding
+  builds. When wrap-around matters, compute in `uint64` and mask.
+- Do not name a local that holds a function value like a builtin (`exit`,
+  `read`): the call links to the C symbol. Use `stop`, `readClock`.
+- Leave the 16550's FIFO control register alone; enabling or clearing the
+  FIFOs drops input that QEMU has already delivered.
+- Output ends lines with `\n` only; QEMU's stdio adds the carriage return.
+- Keep `APP_VERSION` in `source/appinfo.lpfree` equal to `version` in both
+  manifests.
+- The skill documents toolchain 1.25.1; this repository targets 1.26.0. When
   they disagree, trust the toolchain's behaviour.

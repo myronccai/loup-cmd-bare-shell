@@ -1,0 +1,57 @@
+@mode(freestanding)
+
+# The banner, the help text and the usage line of each command.
+
+from appinfo import (APP_NAME, APP_VERSION);
+from platform.board import (Board);
+from platform.console import (puts, putAddr, newline);
+from cli.args import (wordIs);
+
+pub func printBanner(board: Board): void {
+    puts(APP_NAME);
+    puts(" ");
+    puts(APP_VERSION);
+    puts(" on ");
+    puts(board.arch);
+    puts(", console ");
+    puts(board.console);
+    newline();
+    puts("type help for the commands");
+    newline();
+}
+
+pub func printHelp(board: Board): void {
+    puts("commands:\n");
+    puts("  help              this list\n");
+    puts("  echo [WORD]...    print the words\n");
+    puts("  peek ADDR         read the byte at ADDR\n");
+    puts("  poke ADDR VALUE   write the byte VALUE at ADDR\n");
+    puts("  hexdump ADDR LEN  show LEN bytes from ADDR\n");
+    puts("  ticks             ");
+    puts(board.clock);
+    puts(" count since boot\n");
+    puts("  sha256 ADDR LEN   SHA-256 of LEN bytes from ADDR\n");
+    puts("  panic             stop through the panic handler\n");
+    puts("  halt              stop and exit QEMU\n");
+    puts("numbers are decimal or 0x hex; memory is ");
+    putAddr(board.memStart);
+    puts("-");
+    putAddr(board.memEnd - 1u64);
+    puts(", free RAM from ");
+    putAddr(board.scratch);
+    newline();
+    puts("keys: Backspace, Ctrl-U erases the line, Ctrl-C cancels it\n");
+}
+
+# The usage line of the command named by word 0.
+pub func usageOfCommand(): string {
+    if (wordIs(0, "echo")) { return "echo [WORD]..."; }
+    if (wordIs(0, "peek")) { return "peek ADDR"; }
+    if (wordIs(0, "poke")) { return "poke ADDR VALUE"; }
+    if (wordIs(0, "hexdump")) { return "hexdump ADDR LEN"; }
+    if (wordIs(0, "sha256")) { return "sha256 ADDR LEN"; }
+    if (wordIs(0, "ticks")) { return "ticks"; }
+    if (wordIs(0, "panic")) { return "panic"; }
+    if (wordIs(0, "halt")) { return "halt"; }
+    return "help";
+}

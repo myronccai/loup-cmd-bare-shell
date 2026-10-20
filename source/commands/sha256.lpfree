@@ -1,0 +1,163 @@
+@mode(freestanding)
+
+# SHA-256 (FIPS 180-4) of a region of memory, in the freestanding subset: no
+# heap, fixed buffers, and 32-bit words held in uint64 and masked after every
+# operation that can carry or shift past bit 31. (In Loup 1.26.0 freestanding
+# builds uint32 arithmetic does not wrap, so masking is the portable way.)
+
+const MASK32: uint64 = 0xFFFFFFFFu64;
+
+# Round constants, message schedule, hash state and the padded final blocks.
+var k: buffer[uint64, 64];
+var w: buffer[uint64, 64];
+var h: buffer[uint64, 8];
+var tail: buffer[uint8, 128];
+
+# The first 32 bits of the fractional parts of the cube roots of the first
+# 64 primes. Buffers have no initializer syntax, so they are stored here.
+func loadConstants(): void {
+    k[0] = 0x428a2f98u64; k[1] = 0x71374491u64; k[2] = 0xb5c0fbcfu64; k[3] = 0xe9b5dba5u64;
+    k[4] = 0x3956c25bu64; k[5] = 0x59f111f1u64; k[6] = 0x923f82a4u64; k[7] = 0xab1c5ed5u64;
+    k[8] = 0xd807aa98u64; k[9] = 0x12835b01u64; k[10] = 0x243185beu64; k[11] = 0x550c7dc3u64;
+    k[12] = 0x72be5d74u64; k[13] = 0x80deb1feu64; k[14] = 0x9bdc06a7u64; k[15] = 0xc19bf174u64;
+    k[16] = 0xe49b69c1u64; k[17] = 0xefbe4786u64; k[18] = 0x0fc19dc6u64; k[19] = 0x240ca1ccu64;
+    k[20] = 0x2de92c6fu64; k[21] = 0x4a7484aau64; k[22] = 0x5cb0a9dcu64; k[23] = 0x76f988dau64;
+    k[24] = 0x983e5152u64; k[25] = 0xa831c66du64; k[26] = 0xb00327c8u64; k[27] = 0xbf597fc7u64;
+    k[28] = 0xc6e00bf3u64; k[29] = 0xd5a79147u64; k[30] = 0x06ca6351u64; k[31] = 0x14292967u64;
+    k[32] = 0x27b70a85u64; k[33] = 0x2e1b2138u64; k[34] = 0x4d2c6dfcu64; k[35] = 0x53380d13u64;
+    k[36] = 0x650a7354u64; k[37] = 0x766a0abbu64; k[38] = 0x81c2c92eu64; k[39] = 0x92722c85u64;
+    k[40] = 0xa2bfe8a1u64; k[41] = 0xa81a664bu64; k[42] = 0xc24b8b70u64; k[43] = 0xc76c51a3u64;
+    k[44] = 0xd192e819u64; k[45] = 0xd6990624u64; k[46] = 0xf40e3585u64; k[47] = 0x106aa070u64;
+    k[48] = 0x19a4c116u64; k[49] = 0x1e376c08u64; k[50] = 0x2748774cu64; k[51] = 0x34b0bcb5u64;
+    k[52] = 0x391c0cb3u64; k[53] = 0x4ed8aa4au64; k[54] = 0x5b9cca4fu64; k[55] = 0x682e6ff3u64;
+    k[56] = 0x748f82eeu64; k[57] = 0x78a5636fu64; k[58] = 0x84c87814u64; k[59] = 0x8cc70208u64;
+    k[60] = 0x90befffau64; k[61] = 0xa4506cebu64; k[62] = 0xbef9a3f7u64; k[63] = 0xc67178f2u64;
+}
+
+func rotr(x: uint64, n: uint64): uint64 {
+    return ((x >> n) | (x << (32u64 - n))) & MASK32;
+}
+
+# One 64-byte block, whose 16 big-endian words are already in w[0..15].
+func compress(): void {
+    var t = 16;
+    while (t < 64) {
+        let x = w[t - 15];
+        let y = w[t - 2];
+        let s0 = rotr(x, 7u64) ^ rotr(x, 18u64) ^ (x >> 3u64);
+        let s1 = rotr(y, 17u64) ^ rotr(y, 19u64) ^ (y >> 10u64);
+        w[t] = (w[t - 16] + s0 + w[t - 7] + s1) & MASK32;
+        t = t + 1;
+    }
+    var a = h[0];
+    var b = h[1];
+    var c = h[2];
+    var d = h[3];
+    var e = h[4];
+    var f = h[5];
+    var g = h[6];
+    var hh = h[7];
+    t = 0;
+    while (t < 64) {
+        let bigS1 = rotr(e, 6u64) ^ rotr(e, 11u64) ^ rotr(e, 25u64);
+        let ch = (e & f) ^ ((e ^ MASK32) & g);
+        let temp1 = (hh + bigS1 + ch + k[t] + w[t]) & MASK32;
+        let bigS0 = rotr(a, 2u64) ^ rotr(a, 13u64) ^ rotr(a, 22u64);
+        let maj = (a & b) ^ (a & c) ^ (b & c);
+        let temp2 = (bigS0 + maj) & MASK32;
+        hh = g;
+        g = f;
+        f = e;
+        e = (d + temp1) & MASK32;
+        d = c;
+        c = b;
+        b = a;
+        a = (temp1 + temp2) & MASK32;
+        t = t + 1;
+    }
+    h[0] = (h[0] + a) & MASK32;
+    h[1] = (h[1] + b) & MASK32;
+    h[2] = (h[2] + c) & MASK32;
+    h[3] = (h[3] + d) & MASK32;
+    h[4] = (h[4] + e) & MASK32;
+    h[5] = (h[5] + f) & MASK32;
+    h[6] = (h[6] + g) & MASK32;
+    h[7] = (h[7] + hh) & MASK32;
+}
+
+# w[0..15] from 64 bytes of memory at `addr`.
+func loadFromMemory(addr: uint64): void {
+    var i = 0;
+    while (i < 16) {
+        let p = addr + ((i * 4) as uint64);
+        w[i] = (bufGetU8(p, 0) << 24u64) | (bufGetU8(p, 1) << 16u64)
+            | (bufGetU8(p, 2) << 8u64) | bufGetU8(p, 3);
+        i = i + 1;
+    }
+}
+
+# w[0..15] from the padded tail, starting at byte `offset` (0 or 64).
+func loadFromTail(offset: int): void {
+    var i = 0;
+    while (i < 16) {
+        let p = offset + i * 4;
+        w[i] = ((tail[p] as uint64) << 24u64) | ((tail[p + 1] as uint64) << 16u64)
+            | ((tail[p + 2] as uint64) << 8u64) | (tail[p + 3] as uint64);
+        i = i + 1;
+    }
+}
+
+# Hashes `len` bytes starting at `addr`; read the result with digestWord.
+pub func sha256(addr: uint64, len: uint64): void {
+    loadConstants();
+    h[0] = 0x6a09e667u64;
+    h[1] = 0xbb67ae85u64;
+    h[2] = 0x3c6ef372u64;
+    h[3] = 0xa54ff53au64;
+    h[4] = 0x510e527fu64;
+    h[5] = 0x9b05688cu64;
+    h[6] = 0x1f83d9abu64;
+    h[7] = 0x5be0cd19u64;
+
+    let blocks = len / 64u64;
+    var n: uint64 = 0u64;
+    while (n < blocks) {
+        loadFromMemory(addr + n * 64u64);
+        compress();
+        n = n + 1u64;
+    }
+
+    # The rest of the message, the 0x80 marker, zeros, and the bit length as
+    # a 64-bit big-endian number: one block, or two if the rest is 56 bytes
+    # or more.
+    let rest = (len % 64u64) as int;
+    var i = 0;
+    while (i < 128) {
+        tail[i] = 0u8;
+        i = i + 1;
+    }
+    i = 0;
+    while (i < rest) {
+        tail[i] = bufGetU8(addr + blocks * 64u64, i) as uint8;
+        i = i + 1;
+    }
+    tail[rest] = 0x80u8;
+    let total = if (rest < 56) { 64 } else { 128 };
+    let bits = len * 8u64;
+    var j = 0;
+    while (j < 8) {
+        tail[total - 1 - j] = ((bits >> ((j * 8) as uint64)) & 0xFFu64) as uint8;
+        j = j + 1;
+    }
+    loadFromTail(0);
+    compress();
+    if (total == 128) {
+        loadFromTail(64);
+        compress();
+    }
+}
+
+# Word `i` (0..7) of the last digest computed.
+pub func digestWord(i: int): uint64 {
+    return h[i];
+}

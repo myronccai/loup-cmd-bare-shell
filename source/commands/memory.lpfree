@@ -1,0 +1,97 @@
+@mode(freestanding)
+
+# peek, poke and hexdump: byte-wide access to any mapped address. Accesses
+# go through Volatile, so they also work on device registers.
+
+from platform.board import (Board);
+from platform.console import (putByte, puts, newline, putHex, putAddr);
+from cli.args import (ArgError, parseNumber, expectArgs);
+
+# Ok when [start, start + len) lies inside the board's mapped memory.
+pub func checkRange(board: Board, start: uint64, len: uint64): Result[int, ArgError] {
+    if (start < board.memStart or start >= board.memEnd or len > board.memEnd - start) {
+        return Err(ArgError.OutOfRange(start, len));
+    }
+    return Ok(0);
+}
+
+func readByte(addr: uint64): uint8 {
+    return Volatile[uint8].at(addr).read();
+}
+
+# peek ADDR: prints the byte at ADDR.
+pub func cmdPeek(board: Board): Result[int, ArgError] {
+    expectArgs(1)?;
+    let addr = parseNumber(1)?;
+    checkRange(board, addr, 1u64)?;
+    let value = readByte(addr);
+    putAddr(addr);
+    puts(": 0x");
+    putHex(value as uint64, 2);
+    newline();
+    return Ok(1);
+}
+
+# poke ADDR VALUE: writes the byte VALUE at ADDR, and shows old and new.
+pub func cmdPoke(board: Board): Result[int, ArgError] {
+    expectArgs(2)?;
+    let addr = parseNumber(1)?;
+    let value = parseNumber(2)?;
+    if (value > 0xFFu64) {
+        return Err(ArgError.NotAByte(value));
+    }
+    checkRange(board, addr, 1u64)?;
+    let old = readByte(addr);
+    Volatile[uint8].at(addr).write(value as uint8);
+    putAddr(addr);
+    puts(": 0x");
+    putHex(old as uint64, 2);
+    puts(" -> 0x");
+    putHex(readByte(addr) as uint64, 2);
+    newline();
+    return Ok(1);
+}
+
+# hexdump ADDR LEN: 16 bytes a line, in hex and as text, like `hexdump -C`.
+pub func cmdHexdump(board: Board): Result[int, ArgError] {
+    expectArgs(2)?;
+    let addr = parseNumber(1)?;
+    let len = parseNumber(2)?;
+    checkRange(board, addr, len)?;
+    var offset: uint64 = 0u64;
+    while (offset < len) {
+        let rowAddr = addr + offset;
+        let left = len - offset;
+        let count = if (left < 16u64) { left as int } else { 16 };
+        putHex(rowAddr, 8);
+        puts("  ");
+        var j = 0;
+        while (j < 16) {
+            if (j < count) {
+                putHex(readByte(rowAddr + (j as uint64)) as uint64, 2);
+                puts(" ");
+            } else {
+                puts("   ");
+            }
+            if (j == 7) {
+                puts(" ");
+            }
+            j = j + 1;
+        }
+        puts(" |");
+        j = 0;
+        while (j < count) {
+            let b = readByte(rowAddr + (j as uint64));
+            if (b >= 0x20u8 and b < 0x7Fu8) {
+                putByte(b);
+            } else {
+                puts(".");
+            }
+            j = j + 1;
+        }
+        puts("|");
+        newline();
+        offset = offset + 16u64;
+    }
+    return Ok(len as int);
+}

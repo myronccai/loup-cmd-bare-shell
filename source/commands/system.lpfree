@@ -1,0 +1,30 @@
+@mode(freestanding)
+
+from appinfo import (STATUS_OK);
+from platform.board import (Board);
+from platform.console import (puts, newline);
+from cli.args import (ArgError, expectArgs);
+
+# halt: ends the run; QEMU exits with the board's "ok" status.
+pub func cmdHalt(board: Board): Result[int, ArgError] {
+    expectArgs(0)?;
+    puts("halting");
+    newline();
+    let stop = board.exit;
+    stop(STATUS_OK);
+    return Ok(0);
+}
+
+# There is no panic() in Loup 1.26.0; reaching `unreachable` is a panic,
+# and with panic = "custom" it calls the board's @panic_handler.
+func fatal(): noreturn {
+    unreachable;
+}
+
+# panic: stops the machine through the panic handler.
+pub func cmdPanic(): Result[int, ArgError] {
+    expectArgs(0)?;
+    puts("panicking on purpose");
+    newline();
+    fatal();
+}

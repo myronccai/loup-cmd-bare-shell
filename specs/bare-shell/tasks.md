@@ -1,0 +1,24 @@
+# Tasks: bare-shell
+
+- [x] 1. Manifests, linker scripts and entry stubs for the x86_64 and aarch64 boards
+  - _Requirements: 1.2, 1.3_
+- [x] 2. UART input and output: COM1 by port I/O, PL011 by `Volatile`
+  - _Requirements: 1.2_
+- [x] 3. Board-independent console with attachable reader and writer; decimal and hex output
+  - _Requirements: 1.1_
+- [x] 4. Line editor: echo, Backspace/Delete, Ctrl-U, Ctrl-C, CR/LF
+  - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
+- [x] 5. Word splitting and number parsing returning `Result`
+  - _Requirements: 2.6, 4.1, 4.2, 4.6_
+- [x] 6. Dispatcher, banner, help and error reports
+  - _Requirements: 1.1, 3.1, 4.2, 4.5_
+- [x] 7. `echo`, `peek`, `poke`, `hexdump` with range checks
+  - _Requirements: 3.2, 3.3, 3.4, 3.5, 3.10, 4.3, 4.4_
+- [x] 8. `ticks` from the TSC and the virtual counter
+  - _Requirements: 3.6_
+- [x] 9. SHA-256 in the freestanding subset and the `sha256` command
+  - _Requirements: 3.7_
+- [x] 10. `panic` and `halt`; panic handlers; isa-debug-exit and semihosting exits
+  - _Requirements: 3.8, 3.9, 5.1, 5.2_
+- [x] 11. QEMU launcher, scripted sessions, boot tests, Makefile and CI
+  - _Requirements: 6.1, 6.2, 6.3, 6.4_

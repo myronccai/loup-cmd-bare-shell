@@ -1,0 +1,100 @@
+@mode(freestanding)
+
+# The shell: prompt, read a line, split it into words, run the command,
+# report its error. Commands return Result[int, ArgError]; nothing throws.
+
+from platform.board import (Board);
+from platform.console import (puts, putDec, putAddr, newline);
+from cli.line import (readLine);
+from cli.args import (ArgError, MAX_WORDS, splitWords, wordIs, expectArgs);
+from cli.usage import (printBanner, printHelp, usageOfCommand);
+from commands.echo import (cmdEcho, putWord);
+from commands.memory import (cmdPeek, cmdPoke, cmdHexdump);
+from commands.ticks import (markBoot, cmdTicks);
+from commands.hash import (cmdSha256);
+from commands.system import (cmdHalt, cmdPanic);
+
+pub const PROMPT: string = "> ";
+
+func cmdHelp(board: Board): Result[int, ArgError] {
+    expectArgs(0)?;
+    printHelp(board);
+    return Ok(0);
+}
+
+# Runs the command named by word 0. Ok(false) means there is no such command.
+func dispatch(board: Board): Result[bool, ArgError] {
+    if (wordIs(0, "help")) { cmdHelp(board)?; return Ok(true); }
+    if (wordIs(0, "echo")) { cmdEcho()?; return Ok(true); }
+    if (wordIs(0, "peek")) { cmdPeek(board)?; return Ok(true); }
+    if (wordIs(0, "poke")) { cmdPoke(board)?; return Ok(true); }
+    if (wordIs(0, "hexdump")) { cmdHexdump(board)?; return Ok(true); }
+    if (wordIs(0, "ticks")) { cmdTicks(board)?; return Ok(true); }
+    if (wordIs(0, "sha256")) { cmdSha256(board)?; return Ok(true); }
+    if (wordIs(0, "panic")) { cmdPanic()?; return Ok(true); }
+    if (wordIs(0, "halt")) { cmdHalt(board)?; return Ok(true); }
+    return Ok(false);
+}
+
+# "peek: not a number: zz", in the GNU "NAME: message" style.
+func reportError(board: Board, e: ArgError): void {
+    putWord(0);
+    puts(": ");
+    match e {
+        ArgError.Missing => {
+            puts("missing argument; usage: ");
+            puts(usageOfCommand());
+        },
+        ArgError.TooMany => {
+            puts("too many arguments; usage: ");
+            puts(usageOfCommand());
+        },
+        ArgError.BadNumber(w) => {
+            puts("not a number: ");
+            putWord(w);
+        },
+        ArgError.OutOfRange(start, len) => {
+            putAddr(start);
+            puts("+");
+            putDec(len);
+            puts(" is outside memory ");
+            putAddr(board.memStart);
+            puts("-");
+            putAddr(board.memEnd - 1u64);
+        },
+        ArgError.NotAByte(value) => {
+            putAddr(value);
+            puts(" does not fit in a byte");
+        },
+    }
+    newline();
+}
+
+pub func run(board: Board): void {
+    markBoot(board);
+    printBanner(board);
+    while (true) {
+        puts(PROMPT);
+        readLine();
+        let words = splitWords();
+        if (words == 0) {
+            continue;
+        }
+        if (words > MAX_WORDS) {
+            puts("too many words (at most 16)");
+            newline();
+            continue;
+        }
+        match dispatch(board) {
+            Ok(found) => {
+                if (!found) {
+                    puts("unknown command: ");
+                    putWord(0);
+                    puts(" (type help for the commands)");
+                    newline();
+                }
+            },
+            Err(e) => reportError(board, e),
+        }
+    }
+}

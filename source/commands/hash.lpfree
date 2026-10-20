@@ -1,0 +1,23 @@
+@mode(freestanding)
+
+from platform.board import (Board);
+from platform.console import (putHex, newline);
+from cli.args import (ArgError, parseNumber, expectArgs);
+from commands.memory import (checkRange);
+from commands.sha256 import (sha256, digestWord);
+
+# sha256 ADDR LEN: the SHA-256 digest of LEN bytes of memory from ADDR.
+pub func cmdSha256(board: Board): Result[int, ArgError] {
+    expectArgs(2)?;
+    let addr = parseNumber(1)?;
+    let len = parseNumber(2)?;
+    checkRange(board, addr, len)?;
+    sha256(addr, len);
+    var i = 0;
+    while (i < 8) {
+        putHex(digestWord(i), 8);
+        i = i + 1;
+    }
+    newline();
+    return Ok(0);
+}

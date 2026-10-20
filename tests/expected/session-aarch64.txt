@@ -1,0 +1,60 @@
+loup-cmd-bare-shell 0.1.0 on aarch64, console PL011 UART at MMIO 0x9000000
+type help for the commands
+> help
+commands:
+  help              this list
+  echo [WORD]...    print the words
+  peek ADDR         read the byte at ADDR
+  poke ADDR VALUE   write the byte VALUE at ADDR
+  hexdump ADDR LEN  show LEN bytes from ADDR
+  ticks             CNTVCT count since boot
+  sha256 ADDR LEN   SHA-256 of LEN bytes from ADDR
+  panic             stop through the panic handler
+  halt              stop and exit QEMU
+numbers are decimal or 0x hex; memory is 0x40000000-0x4fffffff, free RAM from 0x44000000
+keys: Backspace, Ctrl-U erases the line, Ctrl-C cancels it
+> echo hello,   bare   metal
+hello, bare metal
+> poke 0x44000000 0x61
+0x44000000: 0x00 -> 0x61
+> poke 0x44000001 98
+0x44000001: 0x00 -> 0x62
+> poke 0x44000002 0x63
+0x44000002: 0x00 -> 0x63
+> hexdump 0x44000000 3
+44000000  61 62 63                                          |abc|
+> peek 0x44000001
+0x44000001: 0x62
+> sha256 0x44000000 3
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+> sha256 0x45000000 0
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+> sha256 0x45000000 56
+d4817aa5497628e7c77e6b606107042bbba3130888c5f47a375e6179be789fbb
+> sha256 0x45000000 200
+6d9c54dee5660c46886f32d80e57e9dd0ffa57ee0cd2a762b036d9c8e0c3a33a
+> ticks
+ticks: N CNTVCT counts since boot
+> ec^H ^H^H ^Hecho edited
+edited
+> garbage^H ^H^H ^H^H ^H^H ^H^H ^H^H ^H^H ^Hecho after Ctrl-U
+after Ctrl-U
+> abandoned^C
+> echo after Ctrl-C
+after Ctrl-C
+> peek
+peek: missing argument; usage: peek ADDR
+> peek zz
+peek: not a number: zz
+> poke 1 2 3
+poke: too many arguments; usage: poke ADDR VALUE
+> poke 0x44000000 256
+poke: 0x100 does not fit in a byte
+> peek 0x1000
+peek: 0x1000+1 is outside memory 0x40000000-0x4fffffff
+> hexdump 0x4ffffff0 32
+hexdump: 0x4ffffff0+32 is outside memory 0x40000000-0x4fffffff
+> frobnicate
+unknown command: frobnicate (type help for the commands)
+> halt
+halting

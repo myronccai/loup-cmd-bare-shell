@@ -1,0 +1,126 @@
+@mode(freestanding)
+
+# Board support for AArch64 under `qemu-system-aarch64 -M virt -kernel`: the
+# entry stub, the PL011 UART (both directions, through Volatile), the
+# virtual counter, the semihosting exit and the panic handler. The shell
+# itself is cli.app.
+
+from appinfo import (STATUS_PANIC);
+from platform.board import (Board);
+from platform.console import (attach, puts, putDec, newline);
+from cli.app import (run);
+
+# PL011 UART0 on the virt machine: data register at +0x00, flags at +0x18.
+const UART0: uint64 = 0x09000000u64;
+const UART_FR: uint64 = 0x18u64;
+const FR_RXFE: uint32 = 0x10u32;     # receive FIFO empty
+const FR_TXFF: uint32 = 0x20u32;     # transmit FIFO full
+
+# RAM on the virt machine (-m 256M). With the MMU off, other addresses are
+# devices or nothing, and a stray access stops the CPU.
+const MEM_START: uint64 = 0x40000000u64;
+const MEM_END: uint64 = 0x50000000u64;
+# Free RAM for poke and sha256: 64 MiB in, clear of the device tree (at the
+# start of RAM) and of the image (at 0x40080000).
+const SCRATCH: uint64 = 0x44000000u64;
+
+# ---- The PL011 UART -------------------------------------------------------------
+
+func flags(): uint32 {
+    return Volatile[uint32, Little].at(UART0 + UART_FR).read();
+}
+
+func pl011Put(c: uint8): void {
+    while ((flags() & FR_TXFF) != 0u32) { }
+    Volatile[uint8].at(UART0).write(c);
+}
+
+# Polls until a byte has arrived.
+func pl011Get(): uint8 {
+    while ((flags() & FR_RXFE) != 0u32) {
+        asm { "yield" }
+    }
+    return (Volatile[uint32, Little].at(UART0).read() & 0xFFu32) as uint8;
+}
+
+# ---- The virtual counter ----------------------------------------------------------
+
+func readCounter(): uint64 {
+    var v: uint64 = 0;
+    asm { "mrs x0, cntvct_el0" out: v = "=x0" clobbers: [] }
+    return v;
+}
+
+# ---- Leaving QEMU -------------------------------------------------------------------
+
+# Semihosting SYS_EXIT (operation 0x18) with ADP_Stopped_ApplicationExit and
+# a status: QEMU, started with -semihosting, exits with that status. The
+# trap is `hlt #0xf000`, written as its encoding because the default
+# back end's assembler does not know the instruction.
+var exitBlock: buffer[uint64, 2];
+
+func qemuExit(status: uint8): noreturn {
+    exitBlock[0] = 0x20026u64;
+    exitBlock[1] = status as uint64;
+    let block = addressOf(exitBlock);
+    asm {
+        "mov w0, #0x18"
+        ".inst 0xd45e0000"
+        in: "x1" = block
+        clobbers: ["x0", "memory"]
+    }
+    while (true) {
+        asm { "wfi" }
+    }
+}
+
+func exitQemu(status: uint8): void {
+    qemuExit(status);
+}
+
+func kernelMain(): void {
+    attach(pl011Put, pl011Get);
+    let board = Board(arch = "aarch64", console = "PL011 UART at MMIO 0x9000000",
+        clock = "CNTVCT", memStart = MEM_START, memEnd = MEM_END, scratch = SCRATCH,
+        ticks = readCounter, exit = exitQemu);
+    run(board);
+    qemuExit(STATUS_PANIC);
+}
+
+# ---- Panics -------------------------------------------------------------------------
+
+# With `panic = "custom"` in the manifest, every panic lands here: a reached
+# `unreachable` (the panic command), or a buffer index out of range under
+# `bounds = "trap"`.
+@panic_handler
+func kernelPanic(msg: string, file: string, line: int): noreturn {
+    asm { "msr daifset, #0xf" clobbers: ["memory"] }
+    attach(pl011Put, pl011Get);
+    puts("PANIC: ");
+    puts(msg);
+    puts(" at ");
+    puts(file);
+    puts(":");
+    putDec(line as uint64);
+    newline();
+    qemuExit(STATUS_PANIC);
+}
+
+# ---- Entry --------------------------------------------------------------------------
+
+# QEMU enters here at EL1 with the MMU off and no stack: set sp to the stack
+# the linker script reserves and call kernelMain.
+@entry
+@naked
+@unsafe("naked: runs before any stack exists; sets sp from the linker script, then calls kernelMain")
+@section(".text.boot")
+func _start(): void {
+    asm {
+        "adrp x0, __stack_top"
+        "add x0, x0, :lo12:__stack_top"
+        "mov sp, x0"
+        "bl kernelMain"
+        "1: wfe"
+        "b 1b"
+    }
+}

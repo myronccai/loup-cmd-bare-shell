@@ -1,0 +1,131 @@
+@mode(freestanding)
+
+# Splits the line into words and turns words into numbers. A word is a run
+# of non-space bytes; it is kept as a start index and a length into the line
+# buffer, so nothing is copied.
+
+from cli.line import (lineLength, lineByte);
+
+pub const MAX_WORDS: int = 16;
+
+var wordStart: buffer[int, MAX_WORDS];
+var wordLen: buffer[int, MAX_WORDS];
+var wordCount: int = 0;
+
+pub enum ArgError {
+    # The command needs more arguments.
+    Missing,
+    # The command takes fewer arguments.
+    TooMany,
+    # Word `word` is not a decimal or 0x-hex number that fits in 64 bits.
+    BadNumber(word: int),
+    # The range [start, start + len) is not inside the board's memory.
+    OutOfRange(start: uint64, len: uint64),
+    # The value does not fit in a byte.
+    NotAByte(value: uint64),
+}
+
+# Splits the current line; returns the number of words (at most MAX_WORDS;
+# a line with more is reported by the caller as TooMany).
+pub func splitWords(): int {
+    wordCount = 0;
+    var i = 0;
+    let n = lineLength();
+    while (i < n) {
+        while (i < n and lineByte(i) == 0x20u8) {
+            i = i + 1;
+        }
+        if (i >= n) {
+            break;
+        }
+        let start = i;
+        while (i < n and lineByte(i) != 0x20u8) {
+            i = i + 1;
+        }
+        if (wordCount == MAX_WORDS) {
+            wordCount = MAX_WORDS + 1;
+            return wordCount;
+        }
+        wordStart[wordCount] = start;
+        wordLen[wordCount] = i - start;
+        wordCount = wordCount + 1;
+    }
+    return wordCount;
+}
+
+pub func wordCountNow(): int {
+    return wordCount;
+}
+
+pub func wordLength(w: int): int {
+    return wordLen[w];
+}
+
+pub func wordByte(w: int, i: int): uint8 {
+    return lineByte(wordStart[w] + i);
+}
+
+# True when word `w` is exactly `s`.
+pub func wordIs(w: int, s: string): bool {
+    var i = 0;
+    for (c in s) {
+        if (i >= wordLen[w] or wordByte(w, i) != c as uint8) {
+            return false;
+        }
+        i = i + 1;
+    }
+    return i == wordLen[w];
+}
+
+# The value of one hex digit, or 16 when `c` is not one.
+func hexValue(c: uint8): uint64 {
+    if (c >= 0x30u8 and c <= 0x39u8) {
+        return (c - 0x30u8) as uint64;
+    }
+    if (c >= 0x61u8 and c <= 0x66u8) {
+        return (c - 0x57u8) as uint64;
+    }
+    if (c >= 0x41u8 and c <= 0x46u8) {
+        return (c - 0x37u8) as uint64;
+    }
+    return 16u64;
+}
+
+# Word `w` as a number: decimal, or hex with a 0x prefix.
+pub func parseNumber(w: int): Result[uint64, ArgError] {
+    let n = wordLen[w];
+    var i = 0;
+    var base: uint64 = 10u64;
+    if (n > 2 and wordByte(w, 0) == 0x30u8 and (wordByte(w, 1) == 0x78u8 or wordByte(w, 1) == 0x58u8)) {
+        base = 16u64;
+        i = 2;
+    }
+    if (i >= n) {
+        return Err(ArgError.BadNumber(w));
+    }
+    var value: uint64 = 0u64;
+    while (i < n) {
+        let d = hexValue(wordByte(w, i));
+        if (d >= base) {
+            return Err(ArgError.BadNumber(w));
+        }
+        # value * base + d must stay below 2^64.
+        if (value > (0xFFFFFFFFFFFFFFFFu64 - d) / base) {
+            return Err(ArgError.BadNumber(w));
+        }
+        value = value * base + d;
+        i = i + 1;
+    }
+    return Ok(value);
+}
+
+# Checks that the command has exactly `count` arguments after its name.
+pub func expectArgs(count: int): Result[int, ArgError] {
+    if (wordCount < count + 1) {
+        return Err(ArgError.Missing);
+    }
+    if (wordCount > count + 1) {
+        return Err(ArgError.TooMany);
+    }
+    return Ok(count);
+}

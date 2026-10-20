@@ -1,0 +1,7 @@
+loup-cmd-bare-shell 0.1.0 on aarch64, console PL011 UART at MMIO 0x9000000
+type help for the commands
+> echo about to panic
+about to panic
+> panic
+panicking on purpose
+PANIC: reached an `unreachable` expression at commands/system.lpfree:21
