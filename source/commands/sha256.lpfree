@@ -1,9 +1,24 @@
 @mode(freestanding)
 
-# SHA-256 (FIPS 180-4) of a region of memory, in the freestanding subset: no
-# heap, fixed buffers, and 32-bit words held in uint64 and masked after every
-# operation that can carry or shift past bit 31. (In Loup 1.26.0 freestanding
-# builds uint32 arithmetic does not wrap, so masking is the portable way.)
+# SHA-256 (FIPS 180-4) of a region of memory, in the freestanding subset:
+# no heap, fixed buffers, and 32-bit words held in uint64.
+#
+# Runtime: freestanding, shared by both boards. `make build` compiles it
+# into both bare-metal images, build/shell-x86_64.elf and
+# build/shell-aarch64.elf, with the self-hosted `loup build --target
+# freestanding`: no operating system, runtime library, heap or exceptions.
+# It runs when `make boot` (tests/boot.sh) types the sessions in
+# tests/sessions/ into each image under QEMU; `make check` type-checks it
+# with Stage0 through each board's entry file. The sessions hash "abc",
+# the empty message and runs of zero bytes; tests/expected/ holds the
+# digests.
+#
+# Structure: the round constants, rotr, compress() (message schedule, then
+# the 64 rounds), the two ways to load a block (straight from memory, or
+# from the padded tail buffer), then sha256(), which hashes the whole
+# blocks in place and then one or two padded final blocks. Every operation
+# that can carry or shift past bit 31 is masked, because in Loup 1.26.0
+# freestanding builds uint32 arithmetic does not wrap.
 
 const MASK32: uint64 = 0xFFFFFFFFu64;
 

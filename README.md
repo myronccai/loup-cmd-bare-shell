@@ -156,7 +156,7 @@ A panic ends the run through the panic handler (QEMU exits with 37):
 ```text
 > panic
 panicking on purpose
-PANIC: reached an `unreachable` expression at commands/system.lpfree:21
+PANIC: reached an `unreachable` expression at commands/system.lpfree:33
 ```
 
 On AArch64 the memory is the virt machine's RAM, `0x40000000`-`0x4fffffff`,

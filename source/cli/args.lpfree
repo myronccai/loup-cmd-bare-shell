@@ -1,8 +1,16 @@
 @mode(freestanding)
 
-# Splits the line into words and turns words into numbers. A word is a run
-# of non-space bytes; it is kept as a start index and a length into the line
-# buffer, so nothing is copied.
+# The shell's words and numbers. A word is a run of non-space bytes; it is
+# kept as a start index and a length into the line buffer, so nothing is
+# copied.
+#
+# Runtime: freestanding, shared by both boards. `make build` compiles it
+# into both bare-metal images, build/shell-x86_64.elf and
+# build/shell-aarch64.elf, with the self-hosted `loup build --target
+# freestanding`: no operating system, runtime library, heap or exceptions.
+# It runs when `make boot` (tests/boot.sh) types the sessions in
+# tests/sessions/ into each image under QEMU; `make check` type-checks it
+# with Stage0 through each board's entry file.
 
 from cli.line import (lineLength, lineByte);
 
@@ -42,6 +50,8 @@ pub func splitWords(): int {
         while (i < n and lineByte(i) != 0x20u8) {
             i = i + 1;
         }
+        # One word too many: it is not stored, and MAX_WORDS + 1 tells the
+        # caller to reject the line.
         if (wordCount == MAX_WORDS) {
             wordCount = MAX_WORDS + 1;
             return wordCount;

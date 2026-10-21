@@ -2,8 +2,22 @@
 
 # Board support for AArch64 under `qemu-system-aarch64 -M virt -kernel`: the
 # entry stub, the PL011 UART (both directions, through Volatile), the
-# virtual counter, the semihosting exit and the panic handler. The shell
-# itself is cli.app.
+# virtual counter, the semihosting exit and the panic handler.
+#
+# Runtime: freestanding, aarch64 board only. The entry file of
+# boards/aarch64/package.lppkg: `make build` compiles it, with the shared
+# modules it imports, into the bare-metal image build/shell-aarch64.elf
+# (`loup build --target freestanding --arch aarch64 boards/aarch64`, linked
+# by linker/aarch64.ld); there is no operating system, runtime library, heap
+# or exceptions. `make boot` boots it on QEMU's virt machine (Cortex-A53,
+# -semihosting), types tests/sessions/aarch64.txt and panic.txt into the
+# PL011 and compares the transcripts and exit statuses with tests/expected/;
+# `make run ARCH=aarch64` boots it on this terminal. `make check`
+# type-checks it with Stage0 from boards/aarch64.
+#
+# Structure: the UART, the counter, leaving QEMU, kernelMain (which hands
+# the shell a Board), the panic handler, then _start. The shell itself is
+# cli/app.lpfree, shared with the x86_64 board.
 
 from appinfo import (STATUS_PANIC);
 from platform.board import (Board);

@@ -4,4 +4,4 @@ type help for the commands
 about to panic
 > panic
 panicking on purpose
-PANIC: reached an `unreachable` expression at commands/system.lpfree:21
+PANIC: reached an `unreachable` expression at commands/system.lpfree:33

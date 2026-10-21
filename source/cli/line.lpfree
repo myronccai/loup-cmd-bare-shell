@@ -1,7 +1,17 @@
 @mode(freestanding)
 
-# The line editor. Reads one line from the console into a fixed buffer,
-# echoing what it accepts, with the editing keys of a plain terminal:
+# The shell's line editor: reads one line from the console into a fixed
+# buffer, echoing what it accepts, with the editing keys of a plain terminal.
+#
+# Runtime: freestanding, shared by both boards. `make build` compiles it
+# into both bare-metal images, build/shell-x86_64.elf and
+# build/shell-aarch64.elf, with the self-hosted `loup build --target
+# freestanding`: no operating system, runtime library, heap or exceptions.
+# It runs when `make boot` (tests/boot.sh) types the sessions in
+# tests/sessions/ into each image under QEMU; `make check` type-checks it
+# with Stage0 through each board's entry file.
+#
+# Keys:
 #   Backspace or Delete  erase the last character
 #   Ctrl-U               erase the whole line
 #   Ctrl-C               abandon the line (prints ^C)

@@ -1,7 +1,16 @@
 @mode(freestanding)
 
-# peek, poke and hexdump: byte-wide access to any mapped address. Accesses
-# go through Volatile, so they also work on device registers.
+# The shell's peek, poke and hexdump: byte-wide access to any mapped
+# address. Accesses go through Volatile, so they also work on device
+# registers.
+#
+# Runtime: freestanding, shared by both boards. `make build` compiles it
+# into both bare-metal images, build/shell-x86_64.elf and
+# build/shell-aarch64.elf, with the self-hosted `loup build --target
+# freestanding`: no operating system, runtime library, heap or exceptions.
+# It runs when `make boot` (tests/boot.sh) types the sessions in
+# tests/sessions/ into each image under QEMU; `make check` type-checks it
+# with Stage0 through each board's entry file.
 
 from platform.board import (Board);
 from platform.console import (putByte, puts, newline, putHex, putAddr);

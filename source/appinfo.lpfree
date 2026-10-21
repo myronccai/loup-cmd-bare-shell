@@ -1,6 +1,14 @@
 @mode(freestanding)
 
-# Name, version and exit statuses of the image.
+# Name, version and exit statuses of the shell image.
+#
+# Runtime: freestanding, shared by both boards. `make build` compiles it
+# into both bare-metal images, build/shell-x86_64.elf and
+# build/shell-aarch64.elf, with the self-hosted `loup build --target
+# freestanding`: no operating system, runtime library, heap or exceptions.
+# It runs when `make boot` (tests/boot.sh) types the sessions in
+# tests/sessions/ into each image under QEMU; `make check` type-checks it
+# with Stage0 through each board's entry file.
 
 pub const APP_NAME: string = "loup-cmd-bare-shell";
 pub const APP_VERSION: string = "0.1.0";
