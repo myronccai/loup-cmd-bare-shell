@@ -20,4 +20,5 @@ poke 0x44000000 256
 peek 0x1000
 hexdump 0x4ffffff0 32
 frobnicate
+history
 halt

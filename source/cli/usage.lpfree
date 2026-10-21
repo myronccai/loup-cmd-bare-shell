@@ -40,6 +40,7 @@ pub func printHelp(board: Board): void {
     puts(" count since boot\n");
     puts("  sha256 ADDR LEN   SHA-256 of LEN bytes from ADDR\n");
     puts("  panic             stop through the panic handler\n");
+    puts("  history           the command lines typed so far\n");
     puts("  halt              stop and exit QEMU\n");
     puts("numbers are decimal or 0x hex; memory is ");
     putAddr(board.memStart);
@@ -60,6 +61,7 @@ pub func usageOfCommand(): string {
     if (wordIs(0, "sha256")) { return "sha256 ADDR LEN"; }
     if (wordIs(0, "ticks")) { return "ticks"; }
     if (wordIs(0, "panic")) { return "panic"; }
+    if (wordIs(0, "history")) { return "history"; }
     if (wordIs(0, "halt")) { return "halt"; }
     return "help";
 }

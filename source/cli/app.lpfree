@@ -1,8 +1,8 @@
 @mode(freestanding)
 
-# The shell's main loop: prompt, read a line, split it into words, run the
-# command, report its error. Commands return Result[int, ArgError]; nothing
-# throws.
+# The shell's main loop: prompt, read a line, split it into words, record
+# it in the history, run the command, report its error. Commands return
+# Result[int, ArgError]; nothing throws.
 #
 # Runtime: freestanding, shared by both boards. `make build` compiles it
 # into both bare-metal images, build/shell-x86_64.elf and
@@ -22,6 +22,7 @@ from commands.memory import (cmdPeek, cmdPoke, cmdHexdump);
 from commands.ticks import (markBoot, cmdTicks);
 from commands.hash import (cmdSha256);
 from commands.system import (cmdHalt, cmdPanic);
+from commands.history import (historyInit, recordLine, cmdHistory);
 
 pub const PROMPT: string = "> ";
 
@@ -41,6 +42,7 @@ func dispatch(board: Board): Result[bool, ArgError] {
     if (wordIs(0, "ticks")) { cmdTicks(board)?; return Ok(true); }
     if (wordIs(0, "sha256")) { cmdSha256(board)?; return Ok(true); }
     if (wordIs(0, "panic")) { cmdPanic()?; return Ok(true); }
+    if (wordIs(0, "history")) { cmdHistory()?; return Ok(true); }
     if (wordIs(0, "halt")) { cmdHalt(board)?; return Ok(true); }
     return Ok(false);
 }
@@ -81,6 +83,7 @@ func reportError(board: Board, e: ArgError): void {
 
 pub func run(board: Board): void {
     markBoot(board);
+    historyInit();
     printBanner(board);
     while (true) {
         puts(PROMPT);
@@ -89,6 +92,9 @@ pub func run(board: Board): void {
         if (words == 0) {
             continue;
         }
+        # Every line with words goes into the history, even one that turns
+        # out to be wrong, as in a hosted shell.
+        recordLine();
         if (words > MAX_WORDS) {
             puts("too many words (at most 16)");
             newline();

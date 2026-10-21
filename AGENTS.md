@@ -40,8 +40,9 @@ needed.
 │       ├── echo.lpfree          # echo
 │       ├── memory.lpfree        # peek, poke, hexdump, checkRange
 │       ├── ticks.lpfree         # ticks
-│       ├── sha256.lpfree        # SHA-256 over memory (masked uint64 words)
+│       ├── sha256.lpfree        # SHA-256 over memory (overlay per block, onstack schedule, masked uint64 words)
 │       ├── hash.lpfree          # the sha256 command
+│       ├── history.lpfree       # history: command lines in a debug.recording RecordStream
 │       └── system.lpfree        # panic, halt
 ├── scripts/qemu.sh              # the QEMU command line for each board
 ├── tests/
@@ -68,7 +69,7 @@ Loup Lite comes from <https://github.com/code-craft-ai-company/loup-releases>;
 | Type-check | `make check` | `loup-bootstrap check` at the root and in `boards/aarch64` |
 | Build | `make build` | `build/shell-x86_64.elf`, `build/shell-aarch64.elf` |
 | Build one board | `make build/shell-aarch64.elf` | `loup build --target freestanding --arch aarch64 -o ... boards/aarch64` |
-| Boot tests | `make boot` | `tests/boot.sh`: four sessions, transcripts and exit statuses compared |
+| Boot tests | `make boot` | `tests/boot.sh`: five sessions (one fills the history), transcripts and exit statuses compared |
 | Refresh expected transcripts | `UPDATE=1 bash tests/boot.sh` | then read `git diff tests/expected` before committing |
 | Use the shell | `make run` / `make run ARCH=aarch64` | Ctrl-C goes to the shell; type `halt` to leave |
 | Everything CI runs | `make ci` | check, build, boot |
@@ -109,6 +110,11 @@ for this project in 1.26.0; test through `tests/sessions/` instead.
   `read`): the call links to the C symbol. Use `stop`, `readClock`.
 - Leave the 16550's FIFO control register alone; enabling or clearing the
   FIFOs drops input that QEMU has already delivered.
+- Access device registers through a typed `Volatile[uintN]`: an
+  `mmioPtr(addr)` handle reads and writes 64 bits on AArch64 in 1.26.0.
+- `make build` removes `build/*.elf.loupbuild.fp` before each image: the
+  self-hosted build cache does not see changes under `source/` for the
+  aarch64 board (its manifest is in `boards/aarch64`).
 - Output ends lines with `\n` only; QEMU's stdio adds the carriage return.
 - Keep `APP_VERSION` in `source/appinfo.lpfree` equal to `version` in both
   manifests.

@@ -10,6 +10,7 @@ commands:
   ticks             TSC count since boot
   sha256 ADDR LEN   SHA-256 of LEN bytes from ADDR
   panic             stop through the panic handler
+  history           the command lines typed so far
   halt              stop and exit QEMU
 numbers are decimal or 0x hex; memory is 0x0-0x3fffffff, free RAM from 0x200000
 keys: Backspace, Ctrl-U erases the line, Ctrl-C cancels it
@@ -59,5 +60,30 @@ peek: 0x40000000+1 is outside memory 0x0-0x3fffffff
 hexdump: 0x3ffffff0+32 is outside memory 0x0-0x3fffffff
 > frobnicate
 unknown command: frobnicate (type help for the commands)
+> history
+    1  help
+    2  echo hello,   bare   metal
+    3  hexdump 0x100000 24
+    4  peek 0x100000
+    5  poke 0x200000 0x61
+    6  poke 0x200001 98
+    7  poke 0x200002 0x63
+    8  hexdump 0x200000 3
+    9  sha256 0x200000 3
+   10  sha256 0x300000 0
+   11  sha256 0x300000 56
+   12  sha256 0x300000 200
+   13  ticks
+   14  echo edited
+   15  echo after Ctrl-U
+   16  echo after Ctrl-C
+   17  peek
+   18  peek zz
+   19  poke 1 2 3
+   20  poke 0x200000 256
+   21  peek 0x40000000
+   22  hexdump 0x3ffffff0 32
+   23  frobnicate
+   24  history
 > halt
 halting

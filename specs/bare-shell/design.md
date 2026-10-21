@@ -51,18 +51,32 @@ scripted session starts sending at once).
 | `source/commands/sha256.lpfree` | SHA-256 over memory (`sha256(addr, len)`, `digestWord(i)`) |
 | `source/commands/hash.lpfree` | `cmdSha256` |
 | `source/commands/system.lpfree` | `cmdHalt`, `cmdPanic` |
+| `source/commands/history.lpfree` | `historyInit`, `recordLine`, `cmdHistory` over a `debug.recording` `RecordStream` |
 
 ## SHA-256 in the freestanding subset
 
-The L20 core rewritten without a heap: the round constants, message
-schedule, state and padded tail are module-level `buffer`s (constants are
-assigned at the start of each hash, since buffers have no initializer
-syntax). Each 32-bit word is a `uint64` masked with `0xFFFFFFFF` after every
-addition and rotation, because 1.26.0 freestanding builds do not wrap
-`uint32` arithmetic. Full 64-byte blocks are read straight from memory with
-`bufGetU8`; the remainder, the `0x80` marker and the 64-bit bit length go
-into a 128-byte tail (one block, or two when the remainder is 56 bytes or
-more).
+The L20 core rewritten without a heap: the round constants, state and
+padded tail are module-level `buffer`s (constants are assigned at the start
+of each hash, since buffers have no initializer syntax); the message
+schedule is an `onstack` local of `compress` under `@no_zero_locals`, as it
+is written in full before it is read. Each 32-bit word is a `uint64` masked
+with `0xFFFFFFFF` after every addition and rotation, because 1.26.0
+freestanding builds do not wrap `uint32` arithmetic. `compress` takes a
+block's address and reads it through a 64-byte `buffer` overlay
+(`@unsafe("overlay: ...")`), so full blocks are hashed where they lie in
+memory; the remainder, the `0x80` marker and the 64-bit bit length go into
+a 128-byte tail (one block, or two when the remainder is 56 bytes or more),
+which `compress` reads through the same overlay.
+
+## History
+
+A typed line is an input event, so the history is a `debug.recording`
+`RecordStream`: each line's bytes go into the stream's 4 KiB arena
+(`rs_arena_reserve`) and one record points at them (`rs_record_arena`,
+payload = offset and length). `history` replays the records
+(`rs_replay`, `rs_payload_offset`, `rs_payload_len`). The stream never
+overwrites, so when the arena or the 1024-record ring is full the shell
+rotates it (`rs_rotate`) and keeps the numbering in `firstNumber`.
 
 ## Differences from the roadmap
 
@@ -85,8 +99,9 @@ board's `@panic_handler` (`panic = "custom"`).
 ## Testing
 
 `tests/boot.sh` types `tests/sessions/x86_64.txt`, `aarch64.txt` and
-`panic.txt` into the serial port of each image under `scripts/qemu.sh` with
-a 60-second limit. The sessions exercise every command, every error, and
+`panic.txt` into the serial port of each image, and `history.txt` (62 long
+lines, enough to make the history start again) into the x86_64 image,
+under `scripts/qemu.sh` with a 60-second limit. The sessions exercise every command, every error, and
 the editing keys (`\b`, `\x15`, `\x03` in the files). The transcript, with
 control characters shown by `cat -v` and the `ticks` value replaced by `N`,
 is compared with `tests/expected/`, and QEMU's exit status with 33/37

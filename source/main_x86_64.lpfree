@@ -96,6 +96,11 @@ func exitQemu(status: uint8): void {
     qemuExit(status);
 }
 
+# Entered from the asm in _start with a plain `call`, so it must use the
+# System V AMD64 convention that call assumes. That is the default for Loup
+# functions; @callconv states the contract where the asm depends on it
+# (1.26.0 acts on `naked` and `interrupt` only).
+@callconv("sysv")
 func kernelMain(): void {
     com1Init();
     attach(com1Put, com1Get);

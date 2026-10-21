@@ -72,6 +72,11 @@ memory and check data so that I can explore the machine without a debugger.
 9. `halt` SHALL print `halting` and end the run with status 0.
 10. Memory commands SHALL access memory one byte at a time through
     `Volatile`.
+11. Every line with words SHALL be recorded before it runs; `history`
+    SHALL print the recorded lines oldest first, each as its number
+    right-aligned in 5 columns, two spaces and the line. WHEN the record
+    store (4 KiB of text, 1024 lines) is full, THE shell SHALL empty it and
+    keep numbering from where it was.
 
 ### Requirement 4: Errors
 

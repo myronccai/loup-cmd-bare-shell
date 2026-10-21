@@ -30,8 +30,12 @@ check:
 # Both images (needs Linux x86-64, clang and ld.lld).
 build: $(IMAGES)
 
+# `loup build` keeps a fingerprint next to the image and skips the build
+# when it matches; for boards/aarch64 the fingerprint does not cover the
+# sources in ../../source, so it is removed whenever make decides to rebuild.
 $(BUILD_DIR)/$(APP)-%.elf: $(SOURCES)
 	@mkdir -p $(BUILD_DIR)
+	@rm -f $@.loupbuild.fp
 	$(LOUP) build --target freestanding --arch $* -o $@ $(call board_dir,$*)
 
 # End-to-end: type the sessions in tests/sessions/ into every image under

@@ -13,18 +13,19 @@
 # the empty message and runs of zero bytes; tests/expected/ holds the
 # digests.
 #
-# Structure: the round constants, rotr, compress() (message schedule, then
-# the 64 rounds), the two ways to load a block (straight from memory, or
-# from the padded tail buffer), then sha256(), which hashes the whole
-# blocks in place and then one or two padded final blocks. Every operation
-# that can carry or shift past bit 31 is masked, because in Loup 1.26.0
-# freestanding builds uint32 arithmetic does not wrap.
+# Structure: the round constants, rotr, compress() (one 64-byte block read
+# through an overlay at its address: the message schedule, then the 64
+# rounds), then sha256(), which compresses the whole blocks where they lie
+# in memory and then one or two padded final blocks built in `tail`. Every
+# operation that can carry or shift past bit 31 is masked, because in Loup
+# 1.26.0 freestanding builds uint32 arithmetic does not wrap.
 
 const MASK32: uint64 = 0xFFFFFFFFu64;
 
-# Round constants, message schedule, hash state and the padded final blocks.
+# Round constants, hash state and the padded final blocks. `tail` is a
+# module global because compress() takes a block by address, and addressOf
+# takes module globals only.
 var k: buffer[uint64, 64];
-var w: buffer[uint64, 64];
 var h: buffer[uint64, 8];
 var tail: buffer[uint8, 128];
 
@@ -53,16 +54,29 @@ func rotr(x: uint64, n: uint64): uint64 {
     return ((x >> n) | (x << (32u64 - n))) & MASK32;
 }
 
-# One 64-byte block, whose 16 big-endian words are already in w[0..15].
-func compress(): void {
-    var t = 16;
-    while (t < 64) {
+# One 64-byte block at `blockAddr`: the message schedule, then the rounds.
+# The schedule is per-block scratch that is written in full before it is
+# read (w[0..15] from the block, the rest from earlier entries), so it is
+# a stack local the compiler need not zero (@no_zero_locals).
+@no_zero_locals
+func compress(blockAddr: uint64): void {
+    # The overlay reads the block in place, whether it is part of the
+    # message in memory or the padded tail; the caller has checked that the
+    # whole message is mapped (commands/memory.lpfree checkRange).
+    @unsafe("overlay: 64 message bytes the caller checked are mapped")
+    var block: buffer[uint8, 64] = blockAddr;
+    onstack var w: buffer[uint64, 64];
+    for (var i = 0; i < 16; i = i + 1) {
+        let p = i * 4;
+        w[i] = ((block[p] as uint64) << 24u64) | ((block[p + 1] as uint64) << 16u64)
+            | ((block[p + 2] as uint64) << 8u64) | (block[p + 3] as uint64);
+    }
+    for (var t = 16; t < 64; t = t + 1) {
         let x = w[t - 15];
         let y = w[t - 2];
         let s0 = rotr(x, 7u64) ^ rotr(x, 18u64) ^ (x >> 3u64);
         let s1 = rotr(y, 17u64) ^ rotr(y, 19u64) ^ (y >> 10u64);
         w[t] = (w[t - 16] + s0 + w[t - 7] + s1) & MASK32;
-        t = t + 1;
     }
     var a = h[0];
     var b = h[1];
@@ -72,8 +86,7 @@ func compress(): void {
     var f = h[5];
     var g = h[6];
     var hh = h[7];
-    t = 0;
-    while (t < 64) {
+    for (var t = 0; t < 64; t = t + 1) {
         let bigS1 = rotr(e, 6u64) ^ rotr(e, 11u64) ^ rotr(e, 25u64);
         let ch = (e & f) ^ ((e ^ MASK32) & g);
         let temp1 = (hh + bigS1 + ch + k[t] + w[t]) & MASK32;
@@ -88,7 +101,6 @@ func compress(): void {
         c = b;
         b = a;
         a = (temp1 + temp2) & MASK32;
-        t = t + 1;
     }
     h[0] = (h[0] + a) & MASK32;
     h[1] = (h[1] + b) & MASK32;
@@ -98,28 +110,6 @@ func compress(): void {
     h[5] = (h[5] + f) & MASK32;
     h[6] = (h[6] + g) & MASK32;
     h[7] = (h[7] + hh) & MASK32;
-}
-
-# w[0..15] from 64 bytes of memory at `addr`.
-func loadFromMemory(addr: uint64): void {
-    var i = 0;
-    while (i < 16) {
-        let p = addr + ((i * 4) as uint64);
-        w[i] = (bufGetU8(p, 0) << 24u64) | (bufGetU8(p, 1) << 16u64)
-            | (bufGetU8(p, 2) << 8u64) | bufGetU8(p, 3);
-        i = i + 1;
-    }
-}
-
-# w[0..15] from the padded tail, starting at byte `offset` (0 or 64).
-func loadFromTail(offset: int): void {
-    var i = 0;
-    while (i < 16) {
-        let p = offset + i * 4;
-        w[i] = ((tail[p] as uint64) << 24u64) | ((tail[p + 1] as uint64) << 16u64)
-            | ((tail[p + 2] as uint64) << 8u64) | (tail[p + 3] as uint64);
-        i = i + 1;
-    }
 }
 
 # Hashes `len` bytes starting at `addr`; read the result with digestWord.
@@ -135,40 +125,29 @@ pub func sha256(addr: uint64, len: uint64): void {
     h[7] = 0x5be0cd19u64;
 
     let blocks = len / 64u64;
-    var n: uint64 = 0u64;
-    while (n < blocks) {
-        loadFromMemory(addr + n * 64u64);
-        compress();
-        n = n + 1u64;
+    for (var n: uint64 = 0u64; n < blocks; n = n + 1u64) {
+        compress(addr + n * 64u64);
     }
 
     # The rest of the message, the 0x80 marker, zeros, and the bit length as
     # a 64-bit big-endian number: one block, or two if the rest is 56 bytes
-    # or more.
+    # or more. Only the first `rest` bytes of the last partial block are
+    # read through the overlay.
     let rest = (len % 64u64) as int;
-    var i = 0;
-    while (i < 128) {
-        tail[i] = 0u8;
-        i = i + 1;
-    }
-    i = 0;
-    while (i < rest) {
-        tail[i] = bufGetU8(addr + blocks * 64u64, i) as uint8;
-        i = i + 1;
+    @unsafe("overlay: the message's last partial block, inside the checked range")
+    var last: buffer[uint8, 64] = addr + blocks * 64u64;
+    for (var i = 0; i < 128; i = i + 1) {
+        tail[i] = if (i < rest) { last[i] } else { 0u8 };
     }
     tail[rest] = 0x80u8;
     let total = if (rest < 56) { 64 } else { 128 };
     let bits = len * 8u64;
-    var j = 0;
-    while (j < 8) {
+    for (var j = 0; j < 8; j = j + 1) {
         tail[total - 1 - j] = ((bits >> ((j * 8) as uint64)) & 0xFFu64) as uint8;
-        j = j + 1;
     }
-    loadFromTail(0);
-    compress();
+    compress(addressOf(tail));
     if (total == 128) {
-        loadFromTail(64);
-        compress();
+        compress(addressOf(tail) + 64u64);
     }
 }
 

@@ -59,6 +59,9 @@ session() {
 
 session session-x86_64  x86_64  x86_64.txt  33
 session panic-x86_64    x86_64  panic.txt   37
+# 62 lines of 70 bytes overflow the history's 4 KiB arena after 58 lines:
+# the history starts again at number 59.
+session history-x86_64  x86_64  history.txt 33
 session session-aarch64 aarch64 aarch64.txt 0
 session panic-aarch64   aarch64 panic.txt   2
 

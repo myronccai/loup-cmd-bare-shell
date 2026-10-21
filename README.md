@@ -20,8 +20,10 @@ the series' host commands (`cli/` parses, `commands/` act, errors are
 | A line editor in a fixed `buffer[uint8, 80]`: echo, Backspace, Ctrl-U, Ctrl-C, CR/LF | [`source/cli/line.lpfree`](source/cli/line.lpfree) |
 | Parsing without strings: words as (start, length) pairs into the line buffer, numbers parsed to `Result[uint64, ArgError]` | [`source/cli/args.lpfree`](source/cli/args.lpfree) |
 | Commands that return `Result` and propagate with `?`; one place that reports errors | [`source/cli/app.lpfree`](source/cli/app.lpfree), [`source/commands/`](source/commands) |
-| Raw memory access: `Volatile[uint8].at(addr)` for peek/poke/hexdump, `bufGetU8` for hashing | [`source/commands/memory.lpfree`](source/commands/memory.lpfree), [`source/commands/sha256.lpfree`](source/commands/sha256.lpfree) |
-| SHA-256 in the freestanding subset: module-level buffers, 32-bit words in `uint64` with masking | [`source/commands/sha256.lpfree`](source/commands/sha256.lpfree) |
+| Raw memory access: `Volatile[uint8].at(addr)` for peek/poke/hexdump, with poke's write in an `unsafe("...") { }` region; a 64-byte `buffer` overlay on a block's address for hashing | [`source/commands/memory.lpfree`](source/commands/memory.lpfree), [`source/commands/sha256.lpfree`](source/commands/sha256.lpfree) |
+| SHA-256 in the freestanding subset: the message schedule as an `onstack` local under `@no_zero_locals`, 32-bit words in `uint64` with masking, C-style `for` loops | [`source/commands/sha256.lpfree`](source/commands/sha256.lpfree) |
+| A command history on `debug.recording`: each line is an input event whose text sits in the `RecordStream`'s arena; the stream is rotated when full | [`source/commands/history.lpfree`](source/commands/history.lpfree) |
+| `@callconv("sysv")` on the function the x86_64 entry asm calls; `do`/`while` for "at least one digit" | `kernelMain`, `putHex` in [`source/platform/console.lpfree`](source/platform/console.lpfree) |
 | Reading counters with `asm`: `rdtsc`, `mrs cntvct_el0` | `readTsc`, `readCounter` |
 | Function values in a struct: the board hands the shell its clock and its exit | [`source/platform/board.lpfree`](source/platform/board.lpfree) |
 | `@panic_handler` with `panic = "custom"`, reached by `unreachable` | `kernelPanic`, [`source/commands/system.lpfree`](source/commands/system.lpfree) |
@@ -121,6 +123,7 @@ commands:
   ticks             TSC count since boot
   sha256 ADDR LEN   SHA-256 of LEN bytes from ADDR
   panic             stop through the panic handler
+  history           the command lines typed so far
   halt              stop and exit QEMU
 numbers are decimal or 0x hex; memory is 0x0-0x3fffffff, free RAM from 0x200000
 keys: Backspace, Ctrl-U erases the line, Ctrl-C cancels it
@@ -138,11 +141,23 @@ hello, bare metal
 > sha256 0x200000 3
 ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
 > ticks
-ticks: 73309960 TSC counts since boot
+ticks: 61623240 TSC counts since boot
 > peek 0x40000000
 peek: 0x40000000+1 is outside memory 0x0-0x3fffffff
 > hexdump 0x200000 zz
 hexdump: not a number: zz
+> history
+    1  help
+    2  echo hello,   bare   metal
+    3  hexdump 0x100000 24
+    4  poke 0x200000 0x61
+    5  poke 0x200001 0x62
+    6  poke 0x200002 0x63
+    7  sha256 0x200000 3
+    8  ticks
+    9  peek 0x40000000
+   10  hexdump 0x200000 zz
+   11  history
 > halt
 halting
 ```
@@ -189,6 +204,7 @@ halting
 | `ticks` | the free-running counter (TSC, or CNTVCT on AArch64) since the shell started |
 | `sha256 ADDR LEN` | the SHA-256 digest of LEN bytes from ADDR |
 | `panic` | stops through the panic handler |
+| `history` | the command lines typed so far, numbered, oldest first (itself included) |
 | `halt` | stops and exits QEMU |
 
 Numbers are decimal or hex with `0x`. Memory commands refuse addresses
@@ -197,6 +213,10 @@ outside the board's mapped memory instead of faulting.
 Editing keys: Backspace or Delete erases a character, Ctrl-U the whole line,
 Ctrl-C abandons the line; Enter is CR or LF. A line holds up to 80
 characters and 16 words.
+
+Every line with words goes into the history, even one that fails. The
+history holds 4 KiB of text (1024 lines at most); when it is full it is
+emptied and starts again, with the numbers counting on.
 
 Errors are reported as `COMMAND: message` and the shell carries on:
 `missing argument; usage: ...`, `too many arguments; usage: ...`,
@@ -218,6 +238,13 @@ Errors are reported as `COMMAND: message` and the shell carries on:
   interrupts; interrupts are the subject of
   [loup-cmd-bare-timer](https://github.com/myronccai/loup-cmd-bare-timer).
 - The aarch64 version, optional in the roadmap, is included and tested.
+- `history` is an addition: it lists the lines typed, but there is no `!N`
+  recall and no line editing with arrow keys. When its 4 KiB fill up it
+  starts again rather than dropping the oldest line, because the
+  `debug.recording` stream it uses never overwrites a record.
+- The PL011 data register is accessed as `Volatile[uint8]`, not through
+  `mmioPtr`: in Loup 1.26.0 an `mmioPtr` handle reads and writes 64 bits
+  on AArch64, too wide for a 32-bit device register.
 - The SHA-256 core keeps 32-bit words in `uint64` and masks them: in Loup
   1.26.0 freestanding builds `uint32` arithmetic does not wrap.
 - There are no separate unit tests: `loup-bootstrap test --freestanding`
@@ -236,7 +263,7 @@ source/main_aarch64.lpfree    # aarch64 entry, PL011, CNTVCT, semihosting exit, 
 source/appinfo.lpfree         # name, version, statuses
 source/platform/              # Board, console
 source/cli/                   # line editor, words and numbers, usage, the shell loop
-source/commands/              # echo, memory, ticks, sha256, hash, system
+source/commands/              # echo, memory, ticks, sha256, hash, system, history
 scripts/qemu.sh               # the QEMU command line for each board
 tests/boot.sh                 # boot tests (make boot)
 tests/sessions/               # what the tests type

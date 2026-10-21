@@ -1,0 +1,96 @@
+@mode(freestanding)
+
+# The shell's history command, and the journal it reads: every command line
+# typed, kept in a debug.recording RecordStream.
+#
+# Runtime: freestanding, shared by both boards. `make build` compiles it
+# into both bare-metal images, build/shell-x86_64.elf and
+# build/shell-aarch64.elf, with the self-hosted `loup build --target
+# freestanding`: no operating system, runtime library, heap or exceptions.
+# It runs when `make boot` (tests/boot.sh) types the sessions in
+# tests/sessions/ into each image under QEMU; `make check` type-checks it
+# with Stage0 through each board's entry file.
+#
+# Structure: a typed line is an input event, so each line with words is
+# recorded as one: its bytes go into the stream's arena (rs_arena_reserve)
+# and one record points at them (rs_record_arena, payload = offset and
+# length). `history` replays the records in order and prints each line
+# from the arena. The stream never overwrites a record: when its 4 KiB
+# arena or its 1024-record ring is full it is rotated (emptied), and the
+# history starts again with the next number.
+
+from debug.recording import (RecordStream, rs_init, rs_arena_reserve, rs_arena_capacity,
+    rs_record_arena, rs_capacity, rs_replay, rs_rotate, rs_payload_offset, rs_payload_len,
+    overflow_rotate, nondet_input);
+from cli.args import (ArgError, expectArgs);
+from cli.line import (lineLength, lineByte);
+from platform.console import (putByte, puts, putDec, newline);
+
+# A RecordStream is a fixed ring plus a byte arena, far too big for the
+# stack, so it is a module global set up once by historyInit.
+var gHistory: RecordStream;
+
+# The number of the first line in the stream: numbers keep counting up when
+# the stream is rotated.
+var firstNumber: uint64 = 1u64;
+
+pub func historyInit(): void {
+    rs_init(edits: gHistory, 0u32, overflow_rotate());
+}
+
+# Copies the current line into the arena and records it; false when the
+# arena or the ring is full (nothing usable is recorded then).
+func tryRecord(len: int): bool {
+    let off = rs_arena_reserve(edits: gHistory, len as uint64);
+    if (off == rs_arena_capacity()) {
+        return false;
+    }
+    for (var i = 0; i < len; i = i + 1) {
+        gHistory.arena[(off as int) + i] = lineByte(i);
+    }
+    return rs_record_arena(edits: gHistory, nondet_input(), off, len as uint64) != rs_capacity();
+}
+
+## Records the line just read. The shell calls it for every line that has
+## words, before running it, so `history` lists itself as bash does.
+pub func recordLine(): void {
+    let len = lineLength();
+    if (tryRecord(len)) {
+        return;
+    }
+    # Full: rotate to a fresh segment, which starts after the lines so far.
+    firstNumber = firstNumber + gHistory.count;
+    let _segment = rs_rotate(edits: gHistory);
+    let _recorded = tryRecord(len);
+}
+
+# A number right-aligned in `width` columns, as bash prints history numbers.
+func putNumber(n: uint64, width: int): void {
+    var digits = 0;
+    var rest = n;
+    do {
+        digits = digits + 1;
+        rest = rest / 10u64;
+    } while (rest != 0u64);
+    for (var pad = digits; pad < width; pad = pad + 1) {
+        putByte(0x20u8);
+    }
+    putDec(n);
+}
+
+## history: the lines typed so far, numbered, oldest first.
+pub func cmdHistory(): Result[int, ArgError] {
+    expectArgs(0)?;
+    for (var step: uint64 = 0u64; step < gHistory.count; step = step + 1u64) {
+        let rec = rs_replay(gHistory, step);
+        let off = rs_payload_offset(rec) as int;
+        let len = rs_payload_len(rec) as int;
+        putNumber(firstNumber + step, 5);
+        puts("  ");
+        for (var i = 0; i < len; i = i + 1) {
+            putByte(gHistory.arena[off + i]);
+        }
+        newline();
+    }
+    return Ok(gHistory.count as int);
+}

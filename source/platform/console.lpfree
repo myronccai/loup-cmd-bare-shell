@@ -69,17 +69,19 @@ func hexDigit(v: uint64): uint8 {
 
 # Lower-case hex, no prefix, at least `width` digits (zero-padded).
 pub func putHex(n: uint64, width: int): void {
-    var digits = 1;
-    while (digits < 16 and (n >> ((digits * 4) as uint64)) != 0u64) {
+    # Every number has at least one digit, 0 included: count with do/while.
+    var digits = 0;
+    var rest = n;
+    do {
         digits = digits + 1;
-    }
+        rest = rest >> 4u64;
+    } while (rest != 0u64);
     if (digits < width) {
         digits = width;
     }
-    var shift = (digits - 1) * 4;
-    while (shift >= 0) {
+    # Most significant digit first: one nibble per step, from the top.
+    for (var shift = (digits - 1) * 4; shift >= 0; shift = shift - 4) {
         gPut(hexDigit((n >> (shift as uint64)) & 0xFu64));
-        shift = shift - 4;
     }
 }
 

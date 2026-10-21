@@ -51,7 +51,12 @@ pub func cmdPoke(board: Board): Result[int, ArgError] {
     }
     checkRange(board, addr, 1u64)?;
     let old = readByte(addr);
-    Volatile[uint8].at(addr).write(value as uint8);
+    # The one place the shell writes memory the user names: checkRange only
+    # proves the address is mapped, not that writing it is harmless (it may
+    # be the shell's own code, stack or a device register).
+    unsafe("poke: writes any mapped byte the user names") {
+        Volatile[uint8].at(addr).write(value as uint8);
+    }
     putAddr(addr);
     puts(": 0x");
     putHex(old as uint64, 2);

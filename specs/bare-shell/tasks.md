@@ -22,3 +22,7 @@
   - _Requirements: 3.8, 3.9, 5.1, 5.2_
 - [x] 11. QEMU launcher, scripted sessions, boot tests, Makefile and CI
   - _Requirements: 6.1, 6.2, 6.3, 6.4_
+- [x] 12. `history` on a `debug.recording` stream, with a rotation test session
+  - _Requirements: 3.11_
+- [x] 13. SHA-256 blocks read through an overlay, schedule `onstack`; poke in an `unsafe` region
+  - _Requirements: 3.4, 3.7_
